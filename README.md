@@ -34,3 +34,16 @@ Run in development:
 ```sh
 pnpm run dev
 ```
+
+### API Documentation 📄
+
+Frontend developers can access live API docs rendered with Swagger UI at:
+
+```
+http://localhost:3000/docs/api
+```
+
+The documentation is generated from JSDoc comments in the route files and will
+keep track of all registered endpoints, request/response schemas, and any
+security requirements. Feel free to open `docs/api/swagger.js` to tweak the
+spec or add more tags/descriptions as the project grows.

@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const userSchema = new mongoose.Schema({
-  username: { type: String, sparse: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String },
   provider: { type: String, enum: ['default', 'google', 'github', 'microsoft'], default: 'default' },
@@ -14,9 +13,8 @@ const userSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-userSchema.pre('save', function(next) {
+userSchema.pre('save', function() {
   this.updatedAt = Date.now();
-  next();
 });
 
 module.exports = mongoose.model('User', userSchema);
