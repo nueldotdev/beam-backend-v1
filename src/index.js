@@ -10,7 +10,7 @@ const app = express();
 app.use(helmet()); 
 
 // configure CORS to allow only the frontend URL from env
-const frontendUrl = process.env.BEAM_FRONTEND_URL || '*';
+const frontendUrl = process.env.BEAM_FRONTEND_URL;
 app.use(cors({
   origin: frontendUrl,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
