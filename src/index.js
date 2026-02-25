@@ -8,15 +8,17 @@ require('dotenv').config();
 const app = express(); 
 
 app.use(helmet()); 
-app.use(cors()); 
-app.use(express.json()); 
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  next();
-});
+// configure CORS to allow only the frontend URL from env
+const frontendUrl = process.env.BEAM_FRONTEND_URL || '*';
+app.use(cors({
+  origin: frontendUrl,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+app.use(express.json());
+
 
 // app.use(logger);
 
