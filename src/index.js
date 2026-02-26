@@ -30,8 +30,10 @@ app.use('/docs/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // routes
 const authRoutes = require('../routes/auth');
 const auth = require('../middleware/authMiddleware');
+const meetingRoutes = require('../routes/meetings.routes'); 
 
 app.use('/api/auth', authRoutes);
+app.use('/api/meetings', meetingRoutes);
 
 /**
  * @swagger
@@ -76,11 +78,11 @@ app.get('/api/profile', auth, (req, res) => {
 // database connection
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(MONGO_URI)
+mongoose.connect(`${MONGO_URI}`)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('Mongo connection error', err));
 
 const PORT = process.env.PORT || 3000; 
 app.listen(PORT, () => {
-  console.log(`API running on port https://localhost:${PORT}`)
-}); 
+  console.log(`API running on port http://localhost:${PORT}`)
+}); ``
