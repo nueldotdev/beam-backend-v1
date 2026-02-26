@@ -42,7 +42,7 @@ const meetingRoutes = require('../routes/meetings.routes');
 app.use('/api/auth', authRoutes);
 app.use('/api/meetings', meetingRoutes);
 // Testing Whatsapp bot #4
-// final
+// final test
 /**
  * @swagger
  * tags:
