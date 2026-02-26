@@ -30,8 +30,10 @@ app.use('/docs/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // routes
 const authRoutes = require('../routes/auth');
 const auth = require('../middleware/authMiddleware');
+const meetingRoutes = require('../routes/meetings.routes'); 
 
 app.use('/api/auth', authRoutes);
+app.use('/api/meetings', meetingRoutes);
 
 /**
  * @swagger
@@ -76,7 +78,7 @@ app.get('/api/profile', auth, (req, res) => {
 // database connection
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(MONGO_URI)
+mongoose.connect(`${MONGO_URI}`)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('Mongo connection error', err));
 
