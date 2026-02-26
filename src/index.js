@@ -36,7 +36,7 @@ app.use('/docs/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // routes
 const authRoutes = require('../routes/auth');
-const auth = require('../middleware/authMiddleware');
+const { auth } = require('../middleware/authMiddleware');
 const meetingRoutes = require('../routes/meetings.routes'); 
 
 app.use('/api/auth', authRoutes);
