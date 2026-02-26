@@ -9,10 +9,17 @@ const app = express();
 
 app.use(helmet()); 
 
-// configure CORS to allow only the frontend URL from env
+// CORS allow only the frontend URL from env
 const frontendUrl = process.env.BEAM_FRONTEND_URL || '*';
+const allowedOrigins = [frontendUrl];
+
+// only allow localhost in development
+if (process.env.NODE_ENV === 'development') {
+  allowedOrigins.push('http://localhost:5173');
+}
+
 app.use(cors({
-  origin: frontendUrl,
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
