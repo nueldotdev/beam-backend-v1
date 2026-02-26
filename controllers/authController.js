@@ -153,7 +153,8 @@ const googleOAuthHandler = async (req, res) => {
       expiresIn: "1h",
     });
 
-    return res.json({ token: appToken, user: { id: user._id, email: user.email, profile: user.profile } });
+    return redirect(`${process.env.BEAM_FRONTEND_URL}/oauth-success?token=${appToken}&user=${JSON.stringify({ id: user._id, email: user.email, profile: user.profile })}`);
+
   } catch (error) {
     console.error("Google OAuth error", error.response?.data || error.message);
     return res.status(500).json({ message: "Google OAuth failed" });
