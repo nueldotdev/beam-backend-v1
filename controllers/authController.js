@@ -157,7 +157,7 @@ const googleOAuthHandler = async (req, res) => {
 
   } catch (error) {
     console.error("Google OAuth error", error.response?.data || error.message);
-    return res.status(500).json({ message: "Google OAuth failed" });
+    return res.status(500).json({ message: "Google OAuth failed", error: error.response?.data || error.message });
   }
 };
 
