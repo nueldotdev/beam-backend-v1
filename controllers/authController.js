@@ -129,7 +129,7 @@ const googleOAuthHandler = async (req, res) => {
     }
 
     // upsert user based on providerId (Google's unique user ID)
-    let user = await User.findOne({ providerId: decoded.sub });
+    let user = await User.findOne({ email: decoded.email });
     if (!user) {
       user = new User({
         email: decoded.email,
