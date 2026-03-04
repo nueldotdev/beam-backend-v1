@@ -86,11 +86,28 @@ const login = async (req, res) => {
 
 
 // Google OAuth
+
+
+function computeRedirectUri(req) {
+  // prefer an explicit redirect param (frontend may append it when kicking off flow)
+  if (req.query && req.query.redirect) {
+    return req.query.redirect;
+  }
+  let origin = req.get("origin") || process.env.BEAM_FRONTEND_URL || "http://localhost:5173";
+  if (origin.endsWith("/")) {
+    origin = origin.slice(0, -1);
+  }
+  
+  return `${origin}/google-oauth/callback`;
+}
+
+
 // build the url frontend will use to kick off OAuth flow
 const googleOAuthUrl = (req, res) => {
+  const redirectUri = computeRedirectUri(req);
   const parameters = {
     client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: "openid email profile",
     access_type: "offline",
@@ -103,7 +120,7 @@ const googleOAuthUrl = (req, res) => {
 
 // callback handler - exchanges code for tokens and logs/creates the user
 const googleOAuthHandler = async (req, res) => {
-  const { code } = req.query;
+  const { code } = req.body;
   if (!code) {
     return res.status(400).json({ message: "Authorization code is required" });
   }
@@ -115,7 +132,8 @@ const googleOAuthHandler = async (req, res) => {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID,
         client_secret: process.env.GOOGLE_SECRET,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+        // must match the uri passed in the initial authorization request
+        redirect_uri: computeRedirectUri(req),
         grant_type: "authorization_code",
       }).toString(),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
@@ -153,7 +171,7 @@ const googleOAuthHandler = async (req, res) => {
       expiresIn: "1h",
     });
 
-    return res.redirect(`${process.env.BEAM_FRONTEND_URL}/oauth-success?token=${appToken}&user=${JSON.stringify({ id: user._id, email: user.email, profile: user.profile })}`);
+    res.json({ token: appToken, user: { id: user._id, email: user.email, profile: user.profile } });
 
   } catch (error) {
     console.error("Google OAuth error", error.response?.data || error.message);
