@@ -9,10 +9,17 @@ const app = express();
 
 app.use(helmet()); 
 
-// configure CORS to allow only the frontend URL from env
+// CORS allow only the frontend URL from env
 const frontendUrl = process.env.BEAM_FRONTEND_URL || '*';
+const allowedOrigins = [frontendUrl];
+
+// only allow localhost in development
+if (process.env.NODE_ENV === 'development') {
+  allowedOrigins.push('http://localhost:5173');
+}
+
 app.use(cors({
-  origin: frontendUrl,
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -29,12 +36,15 @@ app.use('/docs/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // routes
 const authRoutes = require('../routes/auth');
-const auth = require('../middleware/authMiddleware');
+const { auth } = require('../middleware/authMiddleware');
 const meetingRoutes = require('../routes/meetings.routes'); 
+const documentRoutes = require('../routes/documents.routes'); 
 
 app.use('/api/auth', authRoutes);
 app.use('/api/meetings', meetingRoutes);
-
+app.use('/api/documents', documentRoutes);
+// Testing Whatsapp bot #4
+// final test
 /**
  * @swagger
  * tags:
@@ -84,5 +94,5 @@ mongoose.connect(`${MONGO_URI}`)
 
 const PORT = process.env.PORT || 3000; 
 app.listen(PORT, () => {
-  console.log(`API running on port http://localhost:${PORT}`)
-}); ``
+  console.log(`API running on port ${PORT}`)
+}); 

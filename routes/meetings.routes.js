@@ -17,7 +17,7 @@ const {
   getMeetingInfo
 } = require('../controllers/meeting.controller');
 
-// router.use(protect);
+router.use(auth);
 console.log('validate:', typeof validate);
 console.log('createMeeting:', typeof createMeeting);
 console.log('joinMeeting:', typeof joinMeeting);

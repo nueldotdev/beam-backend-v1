@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { register, login } = require('../controllers/authController');
+const { register, login, googleOAuthUrl, googleOAuthHandler } = require('../controllers/authController');
 
 /**
  * @swagger
@@ -79,5 +79,48 @@ router.post('/register', register);
  *         description: Server error
  */
 router.post('/login', login);
+
+// Google OAuth helpers
+/**
+ * @swagger
+ * /api/auth/google/url:
+ *   get:
+ *     summary: Get URL to start Google OAuth flow
+ *     tags: [Auth]
+ *     responses:
+ *       '200':
+ *         description: URL returned in JSON
+ */
+router.get('/google/url', googleOAuthUrl);
+
+/**
+ * @swagger
+ * /api/auth/google/callback:
+ *   post:
+ *     summary: OAuth callback endpoint used by Google
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *             properties:
+ *               code:
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Authorization code from Google
+ *     responses:
+ *       '200':
+ *         description: Returns app JWT and user info
+ *       '400':
+ *         description: Missing code
+ *       '500':
+ *         description: Server error
+ */
+router.post('/google/callback', googleOAuthHandler);
 
 module.exports = router;
