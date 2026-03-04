@@ -96,12 +96,19 @@ router.get('/google/url', googleOAuthUrl);
 /**
  * @swagger
  * /api/auth/google/callback:
- *   get:
+ *   post:
  *     summary: OAuth callback endpoint used by Google
  *     tags: [Auth]
- *     parameters:
- *       - in: query
- *         name: code
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *             properties:
+ *               code:
  *         schema:
  *           type: string
  *         required: true
@@ -114,6 +121,6 @@ router.get('/google/url', googleOAuthUrl);
  *       '500':
  *         description: Server error
  */
-router.get('/google/callback', googleOAuthHandler);
+router.post('/google/callback', googleOAuthHandler);
 
 module.exports = router;

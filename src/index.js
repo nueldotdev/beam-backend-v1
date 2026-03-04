@@ -38,9 +38,11 @@ app.use('/docs/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 const authRoutes = require('../routes/auth');
 const { auth } = require('../middleware/authMiddleware');
 const meetingRoutes = require('../routes/meetings.routes'); 
+const documentRoutes = require('../routes/documents.routes'); 
 
 app.use('/api/auth', authRoutes);
 app.use('/api/meetings', meetingRoutes);
+app.use('/api/documents', documentRoutes);
 // Testing Whatsapp bot #4
 // final test
 /**
