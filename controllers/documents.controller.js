@@ -1,4 +1,17 @@
 const Document = require('../models/Document');
+const Meeting = require('../models/Meeting');
+
+async function resolveMeetingObjectId(meetingIdOrCode) {
+  if (!meetingIdOrCode) return null;
+  const raw = String(meetingIdOrCode).trim();
+  if (!raw) return null;
+
+  // if it looks like a Mongo ObjectId, accept it directly
+  if (/^[a-fA-F0-9]{24}$/.test(raw)) return raw;
+
+  const meeting = await Meeting.findOne({ meetingCode: raw }).select('_id').lean();
+  return meeting?._id ? String(meeting._id) : null;
+}
 
 // @desc    Create a new document record (metadata only)
 // @route   POST /api/v1/documents
@@ -8,6 +21,7 @@ const createDocument = async (req, res, next) => {
     const userId = req.user._id;
     const {
       meetingId,
+      meetingCode,
       filename,
       fileType,
       fileUrl,
@@ -16,8 +30,13 @@ const createDocument = async (req, res, next) => {
       slides,
     } = req.body;
 
+    const resolvedMeetingId = await resolveMeetingObjectId(meetingId || meetingCode);
+    if (!resolvedMeetingId) {
+      return res.status(400).json({ success: false, message: 'Invalid meetingId/meetingCode' });
+    }
+
     const doc = await Document.create({
-      meetingId,
+      meetingId: resolvedMeetingId,
       filename,
       fileType,
       fileUrl,
@@ -64,9 +83,15 @@ const getDocument = async (req, res, next) => {
 // @access  Private
 const getDocuments = async (req, res, next) => {
   try {
-    const { meetingId } = req.query;
+    const { meetingId, meetingCode } = req.query;
     const query = { isActive: true };
-    if (meetingId) query.meetingId = meetingId;
+    if (meetingId || meetingCode) {
+      const resolvedMeetingId = await resolveMeetingObjectId(meetingId || meetingCode);
+      if (!resolvedMeetingId) {
+        return res.status(400).json({ success: false, message: 'Invalid meetingId/meetingCode' });
+      }
+      query.meetingId = resolvedMeetingId;
+    }
 
     const docs = await Document.find(query).sort({ uploadedAt: -1 });
 

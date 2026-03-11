@@ -16,11 +16,21 @@ const {
   deleteMeeting,
   getMeetingInfo
 } = require('../controllers/meeting.controller');
+const { listTranscripts, addTranscript } = require('../controllers/transcripts.controller');
+const { meetingAiChat } = require('../controllers/ai.controller');
+ 
+// Public meeting info (no auth required for joining page)
+router.get('/code/:code/info', getMeetingInfo);
 
 router.use(auth);
-console.log('validate:', typeof validate);
-console.log('createMeeting:', typeof createMeeting);
-console.log('joinMeeting:', typeof joinMeeting);
+
+// Transcripts (persisted)
+router.get('/:meetingKey/transcripts', listTranscripts);
+router.post('/:meetingKey/transcripts', addTranscript);
+
+// Meeting AI Q&A
+router.post('/:meetingKey/ai/chat', meetingAiChat);
+
 // Meeting CRUD
 router.route('/')
   .post(validate(createMeetingSchema),  createMeeting)
@@ -34,8 +44,5 @@ router.route('/:id')
 // Join/Leave meeting
 router.post('/:id/join', validate(joinMeetingSchema), joinMeeting);
 router.post('/:id/leave', leaveMeeting);
-
-// Public meeting info (no auth required for joining page)
-router.get('/code/:code/info', getMeetingInfo);
 
 module.exports = router;
