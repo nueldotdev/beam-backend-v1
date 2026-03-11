@@ -12,7 +12,12 @@ const auth = (req, res, next) => {
   const token = parts[1];
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload;
+    // Keep backwards-compat with code that expects req.user._id.
+    // Our JWTs are signed with `{ id: user._id }` in `authController`.
+    req.user = {
+      ...payload,
+      _id: payload._id || payload.id,
+    };
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid or expired token' });
