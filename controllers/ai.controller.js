@@ -1,62 +1,65 @@
-const axios = require('axios');
+const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
 const Transcript = require('../models/Transcript');
 const ChatMessage = require('../models/ChatMessage');
 const { resolveMeetingByKey } = require('../utils/resolveMeeting');
 
+// AWS Configuration (Pulls from env automatically if AWS_ACCESS_KEY_ID is set)
+const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-1" });
+
 function buildContextFromTranscripts(transcripts) {
   return transcripts
-    .map((t) => {
+    .map(t => {
       const ts = t.startTime != null ? `t=${t.startTime}s` : (t.timestamp ? new Date(t.timestamp).toISOString() : '');
       return `[${ts}] ${t.speakerName}: ${t.content}`;
     })
     .join('\n');
 }
 
-async function callOpenAI({ question, context }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return {
-      answer:
-        "AI is not configured on the server yet. Set OPENAI_API_KEY to enable meeting Q&A.\n\n" +
-        "Meanwhile, here is the raw transcript context I have:\n\n" +
-        context.slice(0, 4000),
-      sources: [],
-      usedModel: null,
+async function callAmazonNova({ question, context }) {
+  // Amazon Nova Models: "amazon.nova-micro-v1:0" or "amazon.nova-lite-v1:0"
+  const modelId = "amazon.nova-micro-v1:0"; 
+
+  const systemPrompt = "You are a helpful meeting assistant. Answer the user's question using ONLY the provided transcript context. If the answer is not in the context, say you do not know.";
+
+  const payload = {
+    system: [{ text: systemPrompt }],
+    messages: [
+      {
+        role: "user",
+        content: [
+          { text: `Transcript context:\n${context}` },
+          { text: `Question: ${question}` }
+        ]
+      }
+    ],
+    inferenceConfig: {
+      max_new_tokens: 1000,
+      temperature: 0.2,
+    }
+  };
+
+  try {
+    const command = new InvokeModelCommand({
+      contentType: "application/json",
+      accept: "application/json",
+      modelId: modelId,
+      body: JSON.stringify(payload)
+    });
+
+    const response = await bedrockClient.send(command);
+    
+    // AWS returns a Unit8Array, we must decode it
+    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    const answer = responseBody.output?.message?.content?.[0]?.text || "No answer generated.";
+
+    return { answer, usedModel: modelId };
+  } catch (error) {
+    console.error("Bedrock Error:", error);
+    return { 
+      answer: "Error reaching Amazon Nova. Please check AWS credentials and model access.", 
+      usedModel: modelId 
     };
   }
-
-  const baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-
-  const resp = await axios.post(
-    `${baseURL.replace(/\/$/, '')}/chat/completions`,
-    {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a helpful meeting assistant. Answer only using the provided transcript context. ' +
-            'If the answer is not in the context, say you do not know.',
-        },
-        {
-          role: 'user',
-          content: `Transcript context:\n${context}\n\nQuestion: ${question}`,
-        },
-      ],
-      temperature: 0.2,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 30000,
-    }
-  );
-
-  const answer = resp.data?.choices?.[0]?.message?.content?.trim() || 'No answer';
-  return { answer, sources: [], usedModel: model };
 }
 
 const meetingAiChat = async (req, res, next) => {
@@ -67,6 +70,7 @@ const meetingAiChat = async (req, res, next) => {
     const question = String(req.body.question || '').trim();
     if (!question) return res.status(400).json({ success: false, message: 'question required' });
 
+    // Fetch previous transcripts for context
     const transcriptLimit = Math.min(Number(req.body.transcriptLimit) || 200, 1000);
     const transcripts = await Transcript.find({ meetingId: meeting._id })
       .sort({ timestamp: -1 })
@@ -74,9 +78,11 @@ const meetingAiChat = async (req, res, next) => {
       .lean();
 
     const context = buildContextFromTranscripts(transcripts.reverse());
-    const { answer, sources, usedModel } = await callOpenAI({ question, context });
+    
+    // Call Amazon Nova
+    const { answer, usedModel } = await callAmazonNova({ question, context });
 
-    // store user question + assistant answer
+    // Store user question & AI answer in MongoDB
     await ChatMessage.create({
       meetingId: meeting._id,
       userId: req.user?._id || undefined,
@@ -90,17 +96,13 @@ const meetingAiChat = async (req, res, next) => {
       userId: req.user?._id || undefined,
       messageType: 'assistant',
       content: answer,
-      metadata: { sources: sources || [] },
+      metadata: { sources: [] },
       createdAt: new Date(),
     });
 
     res.json({
       success: true,
-      data: {
-        answer,
-        usedModel,
-        messageId: assistant._id,
-      },
+      data: { answer, usedModel, messageId: assistant._id },
     });
   } catch (e) {
     next(e);

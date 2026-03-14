@@ -29,7 +29,7 @@ app.use(cors({
 app.use(express.json());
 
 
-// app.use(logger);
+app.use(logger);
 
 // swagger setup
 const swaggerUi = require('swagger-ui-express');

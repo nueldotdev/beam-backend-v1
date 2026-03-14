@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { auth } = require('../middleware/authMiddleware'); 
+const { auth, optionalAuth } = require('../middleware/authMiddleware'); 
 const { validate } = require('../validators/meeting.validator');
 const { 
   createMeetingSchema, 
@@ -14,7 +14,8 @@ const {
   leaveMeeting,
   updateMeeting,
   deleteMeeting,
-  getMeetingInfo
+  getMeetingInfo,
+  getJaasJwt
 } = require('../controllers/meeting.controller');
 const { listTranscripts, addTranscript } = require('../controllers/transcripts.controller');
 const { meetingAiChat } = require('../controllers/ai.controller');
@@ -22,27 +23,28 @@ const { meetingAiChat } = require('../controllers/ai.controller');
 // Public meeting info (no auth required for joining page)
 router.get('/code/:code/info', getMeetingInfo);
 
-router.use(auth);
-
 // Transcripts (persisted)
-router.get('/:meetingKey/transcripts', listTranscripts);
-router.post('/:meetingKey/transcripts', addTranscript);
+router.get('/:meetingKey/transcripts', auth, listTranscripts);
+router.post('/:meetingKey/transcripts', auth, addTranscript);
 
 // Meeting AI Q&A
-router.post('/:meetingKey/ai/chat', meetingAiChat);
+router.post('/:meetingKey/ai/chat', auth, meetingAiChat);
 
 // Meeting CRUD
 router.route('/')
-  .post(validate(createMeetingSchema),  createMeeting)
-  .get(getMeetings);
+  .post(auth, validate(createMeetingSchema), createMeeting)
+  .get(auth, getMeetings);
 
 router.route('/:id')
-  .get(getMeeting)
-  .patch(updateMeeting)
-  .delete(deleteMeeting);
+  .get(auth, getMeeting)
+  .patch(auth, updateMeeting)
+  .delete(auth, deleteMeeting);
 
 // Join/Leave meeting
-router.post('/:id/join', validate(joinMeetingSchema), joinMeeting);
-router.post('/:id/leave', leaveMeeting);
+router.post('/:id/join', optionalAuth, validate(joinMeetingSchema), joinMeeting);
+router.post('/:id/leave', optionalAuth, leaveMeeting);
+
+// JaaS Authentication Token
+router.get('/:id/jaas-jwt', optionalAuth, getJaasJwt);
 
 module.exports = router;

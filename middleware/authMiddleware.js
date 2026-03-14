@@ -24,4 +24,23 @@ const auth = (req, res, next) => {
   }
 };
 
-module.exports = { auth };
+const optionalAuth = (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header) return next();
+
+  const parts = header.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return next();
+
+  try {
+    const payload = jwt.verify(parts[1], process.env.JWT_SECRET);
+    req.user = {
+      ...payload,
+      _id: payload._id || payload.id,
+    };
+  } catch (err) {
+    // optional auth allows invalid tokens to pass through as guests
+  }
+  next();
+};
+
+module.exports = { auth, optionalAuth };
