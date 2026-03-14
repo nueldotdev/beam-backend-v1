@@ -1,11 +1,13 @@
 const express = require('express'); 
 const cors = require('cors'); 
 const helmet = require('helmet');
+const http = require('http');
 
 const logger = require('../middleware/loggerMiddleware');
 require('dotenv').config(); 
 
 const app = express(); 
+const server = http.createServer(app);
 
 app.use(helmet()); 
 
@@ -27,7 +29,7 @@ app.use(cors({
 app.use(express.json());
 
 
-// app.use(logger);
+app.use(logger);
 
 // swagger setup
 const swaggerUi = require('swagger-ui-express');
@@ -88,11 +90,20 @@ app.get('/api/profile', auth, (req, res) => {
 // database connection
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(`${MONGO_URI}`)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('Mongo connection error', err));
+if (!MONGO_URI) {
+  console.warn('MONGO_URI not set - starting without MongoDB connection');
+} else {
+  mongoose.connect(`${MONGO_URI}`)
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.error('Mongo connection error', err));
+}
 
 const PORT = process.env.PORT || 3000; 
-app.listen(PORT, () => {
+
+// realtime sockets
+const { createSocketServer } = require('../realtime/socket');
+createSocketServer(server, { corsOrigins: allowedOrigins });
+
+server.listen(PORT, () => {
   console.log(`API running on port ${PORT}`)
 }); 

@@ -13,6 +13,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.10.0",
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1008.0",
     "axios": "^1.13.5",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
@@ -22,6 +23,7 @@
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.0",
     "mongoose": "^9.2.1",
+    "socket.io": "^4.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^4.6.2"
   },
