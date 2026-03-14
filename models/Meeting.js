@@ -57,17 +57,15 @@ const meetingSchema = new mongoose.Schema({
 });
 
 // Update timestamp on save
-meetingSchema.pre('save', function(next) {
+meetingSchema.pre('save', async function() {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Generate meeting code before saving
-meetingSchema.pre('save', async function(next) {
+meetingSchema.pre('save', async function() {
   if (!this.meetingCode) {
     this.meetingCode = generateMeetingCode();
   }
-  next();
 });
 
 function generateMeetingCode() {

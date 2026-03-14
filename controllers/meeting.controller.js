@@ -1,6 +1,99 @@
 const Meeting = require('../models/Meeting');
 const Participant = require('../models/Participant');
 const { generateMeetingCode } = require('../utils/meetingCode');
+const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
+// 8x8 JaaS Credentials and Settings
+const JAAS_APP_ID = process.env.JAAS_APP_ID ? process.env.JAAS_APP_ID.trim() : '';
+const JAAS_API_KEY = process.env.JAAS_API_KEY;
+// Note: In production, the private key should be loaded securely, perhaps from a file or secure vault.
+// For now, we'll expect it as an environment variable (often with \n replacements).
+const JAAS_PRIVATE_KEY = process.env.JAAS_PRIVATE_KEY ? process.env.JAAS_PRIVATE_KEY.replace(/\\n/g, '\n') : '';
+
+// @desc    Generate JaaS JWT Token
+// @route   GET /api/v1/meetings/:id/jaas-jwt
+// @access  Private
+const getJaasJwt = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Generate an ephemeral ObjectId for guests who passed through optionalAuth
+    const userId = req.user ? req.user._id : new mongoose.Types.ObjectId();
+
+    if (!JAAS_APP_ID || !JAAS_API_KEY || !JAAS_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        message: 'JaaS credentials are not fully configured on the server.'
+      });
+    }
+
+    let isHost = true;
+
+    // Safely attempt to find the meeting to check host status, but don't fail if it's an ad-hoc room string
+    if (id && id !== 'new') {
+        let meeting = null;
+        if (id.match(/^[0-9a-fA-F]{24}$/)) {
+            meeting = await Meeting.findById(id);
+        } else {
+            meeting = await Meeting.findOne({ meetingCode: id });
+        }
+        
+        if (meeting && req.user) {
+            isHost = meeting.hostUserId.toString() === userId.toString();
+        } else if (meeting && !req.user) {
+            isHost = false; // Guests cannot be hosts
+        }
+    }
+
+    const isModerator = isHost;
+
+    const requestedName = req.query.name;
+
+    const authPayload = {
+      context: {
+        user: {
+          avatar: req.user?.profile?.avatar || '',
+          name: requestedName || req.user?.name || (req.user?.email ? req.user.email : 'Guest'),
+          email: req.user?.email || '',
+          id: userId.toString(),
+          moderator: isModerator ? 'true' : 'false',
+        },
+        features: {
+          livestreaming: true,
+          recording: true,
+          transcription: true,
+          'outbound-call': true,
+          lobby: false,
+        },
+      },
+      aud: 'jitsi',
+      iss: 'chat',
+      sub: JAAS_APP_ID,
+      room: '*', // Or restrict to meetingCode
+      // Kid format: appId/apiKey
+    };
+
+    const token = jwt.sign(authPayload, JAAS_PRIVATE_KEY, {
+        algorithm: 'RS256',
+        expiresIn: '2h',
+        header: {
+            kid: JAAS_API_KEY.includes('/') ? JAAS_API_KEY : `${JAAS_APP_ID}/${JAAS_API_KEY}`
+        }
+    });
+
+    res.json({
+        success: true,
+        data: {
+            token,
+            appId: JAAS_APP_ID,
+        }
+    });
+  } catch (error) {
+     console.error("Error generating JaaS JWT:", error);
+     next(error);
+  }
+};
+
 
 // @desc    Create a new meeting
 // @route   POST /api/meetings
@@ -37,7 +130,7 @@ const createMeeting = async (req, res, next) => {
     await Participant.create({
       meetingId: meeting._id,
       userId,
-      displayName: req.user.name || req.user.email.split('@')[0],
+      displayName: req.user.name || (req.user.email ? req.user.email.split('@')[0] : 'Guest'),
       role: 'host'
     });
 
@@ -164,7 +257,7 @@ const joinMeeting = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { displayName } = req.body;
-    const userId = req.user._id;
+    const userId = req.user ? req.user._id : null;
 
     const meeting = await Meeting.findById(id);
     if (!meeting) {
@@ -188,12 +281,15 @@ const joinMeeting = async (req, res, next) => {
       });
     }
 
-    // Check if already joined
-    let participant = await Participant.findOne({
-      meetingId: id,
-      userId,
-      leftAt: null
-    });
+    // Check if already joined (Only for registered users)
+    let participant = null;
+    if (userId) {
+      participant = await Participant.findOne({
+        meetingId: id,
+        userId,
+        leftAt: null
+      });
+    }
 
     if (participant) {
       // Update existing participant
@@ -204,9 +300,9 @@ const joinMeeting = async (req, res, next) => {
       // Create new participant
       participant = await Participant.create({
         meetingId: id,
-        userId,
-        displayName: displayName || req.user.name || req.user.email.split('@')[0],
-        role: meeting.hostUserId.toString() === userId.toString() ? 'host' : 'participant'
+        userId: userId || undefined, // guest participants have undefined userId
+        displayName: displayName || req.user?.name || (req.user?.email ? req.user.email.split('@')[0] : 'Guest'),
+        role: (userId && meeting.hostUserId.toString() === userId.toString()) ? 'host' : 'participant'
       });
 
       // Increment participant count
@@ -233,7 +329,12 @@ const joinMeeting = async (req, res, next) => {
 const leaveMeeting = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user._id;
+    const userId = req.user ? req.user._id : null;
+
+    if (!userId) {
+       // Guests don't have tracked Participant records by UserID to leave
+       return res.json({ success: true, message: 'Guest left meeting successfully' });
+    }
 
     const participant = await Participant.findOneAndUpdate(
       { meetingId: id, userId, leftAt: null },
@@ -390,5 +491,6 @@ module.exports = {
   leaveMeeting,
   updateMeeting,
   deleteMeeting,
-  getMeetingInfo
+  getMeetingInfo,
+  getJaasJwt
 };
