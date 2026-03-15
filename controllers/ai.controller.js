@@ -109,5 +109,61 @@ const meetingAiChat = async (req, res, next) => {
   }
 };
 
-module.exports = { meetingAiChat };
+const generateMeetingSummary = async (req, res, next) => {
+  try {
+    const meeting = await resolveMeetingByKey(req.params.meetingKey);
+    if (!meeting) return res.status(404).json({ success: false, message: 'Meeting not found' });
+
+    // Fetch transcripts
+    const transcripts = await Transcript.find({ meetingId: meeting._id })
+      .sort({ timestamp: 1 })
+      .lean();
+
+    if (transcripts.length === 0) {
+      return res.json({ success: true, data: { summary: "No transcripts available for this meeting." } });
+    }
+
+    const context = buildContextFromTranscripts(transcripts);
+    
+    // Call Amazon Nova for summary
+    const modelId = "amazon.nova-micro-v1:0"; 
+    const systemPrompt = "You are a professional secretary. Summarize the following meeting transcript in a concise and professional manner. Highlight key decisions and action items.";
+    
+    const payload = {
+      system: [{ text: systemPrompt }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { text: `Transcript context:\n${context}` }
+          ]
+        }
+      ],
+      inferenceConfig: {
+        max_new_tokens: 1500,
+        temperature: 0.3,
+      }
+    };
+
+    const command = new InvokeModelCommand({
+      contentType: "application/json",
+      accept: "application/json",
+      modelId: modelId,
+      body: JSON.stringify(payload)
+    });
+
+    const response = await bedrockClient.send(command);
+    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    const summary = responseBody.output?.message?.content?.[0]?.text || "No summary generated.";
+
+    res.json({
+      success: true,
+      data: { summary, usedModel: modelId },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+module.exports = { meetingAiChat, generateMeetingSummary };
 

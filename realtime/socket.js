@@ -167,18 +167,25 @@ function createSocketServer(httpServer, { corsOrigins }) {
     });
 
     socket.on('transcript:chunk', async (payload) => {
-      if (!joinedMeetingKey) return;
+      if (!joinedMeetingKey) {
+        console.warn(`[Socket] Received transcript:chunk but joinedMeetingKey is missing for socket ${socket.id}`);
+        return;
+      }
       const state = getMeetingState(joinedMeetingKey);
       const p = state.participants.get(socket.id);
-      if (!p) return;
+      
+      const displayName = p?.displayName || payload?.displayName || "Unknown Speaker";
+      const userId = p?.userId || socket.id;
 
       const chunk = {
         meetingKey: joinedMeetingKey,
-        speaker: { socketId: socket.id, userId: p.userId, displayName: p.displayName },
+        speaker: { socketId: socket.id, userId, displayName },
         content: String(payload?.content || '').slice(0, 8000),
         isFinal: !!payload?.isFinal,
         ts: Date.now(),
       };
+
+      console.log(`[Socket] Transcript chunk from ${displayName} (${socket.id}): "${chunk.content}" (Final: ${chunk.isFinal})`);
 
       // Broadcast to all participants for real-time captions
       io.to(joinedMeetingKey).emit('transcript:chunk', chunk);

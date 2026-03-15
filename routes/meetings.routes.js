@@ -18,7 +18,7 @@ const {
   getJaasJwt
 } = require('../controllers/meeting.controller');
 const { listTranscripts, addTranscript } = require('../controllers/transcripts.controller');
-const { meetingAiChat } = require('../controllers/ai.controller');
+const { meetingAiChat, generateMeetingSummary } = require('../controllers/ai.controller');
  
 // Public meeting info (no auth required for joining page)
 router.get('/code/:code/info', getMeetingInfo);
@@ -29,6 +29,7 @@ router.post('/:meetingKey/transcripts', auth, addTranscript);
 
 // Meeting AI Q&A
 router.post('/:meetingKey/ai/chat', optionalAuth, meetingAiChat);
+router.get('/:meetingKey/summary', auth, generateMeetingSummary);
 
 // Meeting CRUD
 router.route('/')
