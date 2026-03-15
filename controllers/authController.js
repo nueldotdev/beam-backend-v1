@@ -43,7 +43,7 @@ const register = async (req, res) => {
     await user.save();
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "3h",
     });
     res.status(201).json({ token, user: { id: user._id, email: user.email, profile: user.profile } });
   } catch (err) {
@@ -75,7 +75,7 @@ const login = async (req, res) => {
     }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "3h",
     });
     res.json({ token });
   } catch (err) {
@@ -168,7 +168,7 @@ const googleOAuthHandler = async (req, res) => {
 
     // issue our own JWT
     const appToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "3h",
     });
 
     res.json({ token: appToken, user: { id: user._id, email: user.email, profile: user.profile } });
@@ -180,4 +180,19 @@ const googleOAuthHandler = async (req, res) => {
 };
 
 
-module.exports = { register, login, googleOAuthUrl, googleOAuthHandler };
+// Refresh token — issues a new 8-hour token for already-authenticated users.
+// Called proactively by the frontend while in a meeting to prevent expiry.
+const refreshToken = async (req, res) => {
+  try {
+    // req.user is set by the `auth` middleware which verifies the existing token
+    const newToken = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, {
+      expiresIn: '8h',
+    });
+    res.json({ token: newToken });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { register, login, googleOAuthUrl, googleOAuthHandler, refreshToken };
