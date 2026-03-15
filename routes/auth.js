@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { register, login, googleOAuthUrl, googleOAuthHandler } = require('../controllers/authController');
+const { register, login, googleOAuthUrl, googleOAuthHandler, refreshToken } = require('../controllers/authController');
+const { auth } = require('../middleware/authMiddleware');
 
 /**
  * @swagger
@@ -122,5 +123,8 @@ router.get('/google/url', googleOAuthUrl);
  *         description: Server error
  */
 router.post('/google/callback', googleOAuthHandler);
+
+// Proactive session keepalive — exchange a valid (not-yet-expired) token for a fresh 8h one
+router.post('/refresh', auth, refreshToken);
 
 module.exports = router;

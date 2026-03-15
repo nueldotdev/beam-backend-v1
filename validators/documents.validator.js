@@ -23,7 +23,7 @@ const validate = (schema, property = 'body') => {
 const createDocumentSchema = Joi.object({
   meetingId: Joi.string().required(),
   filename: Joi.string().max(255).required(),
-  fileType: Joi.string().valid('pdf').default('pdf'),
+  fileType: Joi.string().valid('pdf', 'image', 'pptx').default('pdf'),
   fileUrl: Joi.string().uri().required(),
   size: Joi.number().integer().min(0).optional(),
   pageCount: Joi.number().integer().min(0).optional(),
@@ -43,7 +43,7 @@ const createDocumentSchema = Joi.object({
 
 const updateDocumentSchema = Joi.object({
   filename: Joi.string().max(255).optional(),
-  fileType: Joi.string().valid('pdf').optional(),
+  fileType: Joi.string().valid('pdf', 'image', 'pptx').optional(),
   fileUrl: Joi.string().uri().optional(),
   size: Joi.number().integer().min(0).optional(),
   pageCount: Joi.number().integer().min(0).optional(),

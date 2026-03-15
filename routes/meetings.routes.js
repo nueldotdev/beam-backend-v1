@@ -24,11 +24,11 @@ const { meetingAiChat } = require('../controllers/ai.controller');
 router.get('/code/:code/info', getMeetingInfo);
 
 // Transcripts (persisted)
-router.get('/:meetingKey/transcripts', auth, listTranscripts);
+router.get('/:meetingKey/transcripts', optionalAuth, listTranscripts);
 router.post('/:meetingKey/transcripts', auth, addTranscript);
 
 // Meeting AI Q&A
-router.post('/:meetingKey/ai/chat', auth, meetingAiChat);
+router.post('/:meetingKey/ai/chat', optionalAuth, meetingAiChat);
 
 // Meeting CRUD
 router.route('/')

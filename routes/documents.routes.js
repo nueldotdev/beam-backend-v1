@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { auth } = require('../middleware/authMiddleware');
+const { auth, optionalAuth } = require('../middleware/authMiddleware');
 const { validate } = require('../validators/documents.validator');
 const { createDocumentSchema, updateDocumentSchema } = require('../validators/documents.validator');
 const {
@@ -11,7 +11,8 @@ const {
   deleteDocument,
 } = require('../controllers/documents.controller');
 
-router.use(auth);
+// Note: GET routes use optionalAuth so guests in a meeting can fetch/view documents.
+// POST/PATCH/DELETE routes require a full auth token.
 
 // CRUD endpoints
 /**
@@ -53,12 +54,12 @@ router.use(auth);
  *         description: OK
  */
 router.route('/')
-  .post(validate(createDocumentSchema), createDocument)
-  .get(getDocuments);
+  .post(optionalAuth, validate(createDocumentSchema), createDocument)
+  .get(optionalAuth, getDocuments);
 
 router.route('/:id')
-  .get(getDocument)
-  .patch(validate(updateDocumentSchema), updateDocument)
-  .delete(deleteDocument);
+  .get(optionalAuth, getDocument)
+  .patch(auth, validate(updateDocumentSchema), updateDocument)
+  .delete(auth, deleteDocument);
 
 module.exports = router;
