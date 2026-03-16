@@ -46,9 +46,10 @@ function createSocketServer(httpServer, { corsOrigins }) {
 
     socket.on('meeting:join', (payload, ack) => {
       try {
-        const meetingKey = String(payload?.meetingKey || '').trim();
+        const meetingKey = String(payload?.meetingKey || '').trim().toUpperCase();
         if (!meetingKey) throw new Error('meetingKey required');
 
+        console.log(`[Socket] Socket ${socket.id} joining room: ${meetingKey}`);
         const displayName = String(payload?.displayName || 'Guest').slice(0, 80);
         const role = payload?.role === 'host' ? 'host' : 'participant';
 
@@ -72,6 +73,8 @@ function createSocketServer(httpServer, { corsOrigins }) {
           followHost: p.followHost,
           browse: p.browse,
         }));
+
+        console.log(`[Socket] Room ${meetingKey} roster:`, roster.map(p => p.displayName));
 
         socket.to(meetingKey).emit('meeting:participant_joined', {
           socketId: socket.id,
@@ -186,6 +189,7 @@ function createSocketServer(httpServer, { corsOrigins }) {
       };
 
       console.log(`[Socket] Transcript chunk from ${displayName} (${socket.id}): "${chunk.content}" (Final: ${chunk.isFinal})`);
+      console.log(`[Socket] Room ${joinedMeetingKey} has ${state.participants.size} participants. Broadcasting...`);
 
       // Broadcast to all participants for real-time captions
       io.to(joinedMeetingKey).emit('transcript:chunk', chunk);
@@ -197,8 +201,8 @@ function createSocketServer(httpServer, { corsOrigins }) {
           if (meeting) {
             await Transcript.create({
               meetingId: meeting._id,
-              speakerId: p.userId || socket.id,
-              speakerName: p.displayName,
+              speakerId: userId,
+              speakerName: displayName,
               content: chunk.content,
               isFinal: true,
               timestamp: new Date(chunk.ts),

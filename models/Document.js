@@ -54,6 +54,10 @@ const documentSchema = new mongoose.Schema({
     type: Boolean, 
     default: true 
   },
+  extractedText: {
+    type: String,
+    default: ""
+  },
   processingStatus: {
     type: String,
     enum: ['pending', 'processing', 'completed', 'failed'],

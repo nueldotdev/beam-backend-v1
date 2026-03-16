@@ -9,7 +9,7 @@ async function resolveMeetingByKey(meetingKey) {
     return meeting || null;
   }
 
-  const meeting = await Meeting.findOne({ meetingCode: raw }).lean();
+  const meeting = await Meeting.findOne({ meetingCode: new RegExp(`^${raw}$`, 'i') }).lean();
   return meeting || null;
 }
 

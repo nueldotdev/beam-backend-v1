@@ -28,6 +28,7 @@ const createDocument = async (req, res, next) => {
       size,
       pageCount,
       slides,
+      extractedText,
     } = req.body;
 
     const resolvedMeetingId = await resolveMeetingObjectId(meetingId || meetingCode);
@@ -43,6 +44,7 @@ const createDocument = async (req, res, next) => {
       size,
       pageCount,
       slides,
+      extractedText,
       uploadedBy: userId,
       processingStatus: 'completed', // assume already uploaded/processed
     });

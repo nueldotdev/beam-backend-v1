@@ -1,10 +1,24 @@
 const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
+const axios = require('axios');
 const Transcript = require('../models/Transcript');
 const ChatMessage = require('../models/ChatMessage');
+const Document = require('../models/Document');
 const { resolveMeetingByKey } = require('../utils/resolveMeeting');
 
-// AWS Configuration (Pulls from env automatically if AWS_ACCESS_KEY_ID is set)
 const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-1" });
+
+/**
+ * Helper to fetch file bytes from Cloudinary for multimodal processing
+ */
+async function fetchFileBytes(url) {
+  try {
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    return new Uint8Array(response.data);
+  } catch (error) {
+    console.error(`Failed to fetch file from Cloudinary: ${url}`, error.message);
+    return null;
+  }
+}
 
 function buildContextFromTranscripts(transcripts) {
   return transcripts
@@ -15,50 +29,107 @@ function buildContextFromTranscripts(transcripts) {
     .join('\n');
 }
 
-async function callAmazonNova({ question, context }) {
-  // Amazon Nova Models: "amazon.nova-micro-v1:0" or "amazon.nova-lite-v1:0"
-  const modelId = "amazon.nova-micro-v1:0"; 
+/**
+ * TRIAGE: Uses Nova Micro to determine intent and required context
+ */
+async function triageUserQuery(question, availableDocs) {
+  const modelId = "amazon.nova-micro-v1:0";
+  const docList = availableDocs.map(d => ({ id: d._id, name: d.filename, type: d.fileType }));
 
-  const systemPrompt = "You are a helpful meeting assistant. Answer the user's question using ONLY the provided transcript context. If the answer is not in the context, say you do not know.";
+  const systemPrompt = `Analyze the user's meeting-related question. Identify which resources are needed to answer it.
+Available Documents: ${JSON.stringify(docList)}
 
-  const payload = {
-    system: [{ text: systemPrompt }],
-    messages: [
-      {
-        role: "user",
-        content: [
-          { text: `Transcript context:\n${context}` },
-          { text: `Question: ${question}` }
-        ]
-      }
-    ],
-    inferenceConfig: {
-      max_new_tokens: 1000,
-      temperature: 0.2,
-    }
-  };
+Return ONLY a JSON object:
+{
+  "needsTranscripts": boolean,
+  "relevantDocIds": ["id1", "id2"],
+  "isMultimodalRequired": boolean (true if question asks about visual charts, tables, or layout in a document),
+  "specificPages": [number]
+}`;
 
   try {
+    const payload = {
+      system: [{ text: systemPrompt }],
+      messages: [{ role: "user", content: [{ text: question }] }],
+      inferenceConfig: { max_new_tokens: 500, temperature: 0 }
+    };
+
     const command = new InvokeModelCommand({
+      modelId,
       contentType: "application/json",
       accept: "application/json",
-      modelId: modelId,
       body: JSON.stringify(payload)
     });
 
     const response = await bedrockClient.send(command);
+    const body = JSON.parse(new TextDecoder().decode(response.body));
+    const resultText = body.output?.message?.content?.[0]?.text;
     
-    // AWS returns a Unit8Array, we must decode it
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const answer = responseBody.output?.message?.content?.[0]?.text || "No answer generated.";
+    // Cleanup potential markdown wrappers
+    const cleanJson = resultText.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (err) {
+    console.error("Triage Error:", err);
+    return { needsTranscripts: true, relevantDocIds: [], isMultimodalRequired: false, specificPages: [] };
+  }
+}
 
-    return { answer, usedModel: modelId };
-  } catch (error) {
-    console.error("Bedrock Error:", error);
-    return { 
-      answer: "Error reaching Amazon Nova. Please check AWS credentials and model access.", 
-      usedModel: modelId 
-    };
+/**
+ * SOLVER: Final answer generation
+ */
+async function solveQuery({ question, transcriptContext, documentData, isMultimodal }) {
+  // Use Nova Lite for multimodal/complex, Nova Micro for basic
+  const modelId = isMultimodal ? "amazon.nova-lite-v1:0" : "amazon.nova-micro-v1:0";
+  
+  const systemPrompt = "You are a senior meeting assistant. Use the provided context to answer the user accurately. Cross-reference speakers and documents. If the answer isn't available, say so.";
+
+  const content = [];
+  
+  if (transcriptContext) {
+    content.push({ text: `MEETING TRANSCRIPT:\n${transcriptContext}` });
+  }
+
+  // Handle multimodal document data
+  for (const doc of documentData) {
+    if (isMultimodal && doc.bytes && (doc.type === 'image' || doc.type === 'pdf')) {
+      // Nova Lite supports direct PDF/Image input
+      const format = doc.type === 'pdf' ? 'pdf' : (doc.url.endsWith('.png') ? 'png' : 'jpeg');
+      content.push({
+        text: `Source Document: ${doc.name}`
+      });
+      content.push({
+        [doc.type === 'pdf' ? 'document' : 'image']: {
+          format,
+          source: { bytes: doc.bytes }
+        }
+      });
+    } else {
+      content.push({ text: `DOCUMENT CONTENT (${doc.name}):\n${doc.text}` });
+    }
+  }
+
+  content.push({ text: `USER QUESTION: ${question}` });
+
+  const payload = {
+    system: [{ text: systemPrompt }],
+    messages: [{ role: "user", content }],
+    inferenceConfig: { max_new_tokens: 2000, temperature: 0.1 }
+  };
+
+  try {
+    const command = new InvokeModelCommand({
+      modelId,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify(payload)
+    });
+
+    const response = await bedrockClient.send(command);
+    const body = JSON.parse(new TextDecoder().decode(response.body));
+    return body.output?.message?.content?.[0]?.text || "No response generated.";
+  } catch (err) {
+    console.error("Solver Error:", err);
+    return "The AI encountered an error while analyzing the context. Please try again.";
   }
 }
 
@@ -68,102 +139,100 @@ const meetingAiChat = async (req, res, next) => {
     if (!meeting) return res.status(404).json({ success: false, message: 'Meeting not found' });
 
     const question = String(req.body.question || '').trim();
-    if (!question) return res.status(400).json({ success: false, message: 'question required' });
+    if (!question) return res.status(400).json({ success: false, message: 'Question required' });
 
-    // Fetch previous transcripts for context
-    const transcriptLimit = Math.min(Number(req.body.transcriptLimit) || 200, 1000);
-    const transcripts = await Transcript.find({ meetingId: meeting._id })
-      .sort({ timestamp: -1 })
-      .limit(transcriptLimit)
-      .lean();
-
-    const context = buildContextFromTranscripts(transcripts.reverse());
+    // Step 1: Fetch metadata for triage
+    const allDocs = await Document.find({ meetingId: meeting._id, isActive: true }).select('_id filename fileType').lean();
     
-    // Call Amazon Nova
-    const { answer, usedModel } = await callAmazonNova({ question, context });
+    // Step 2: Triage
+    const plan = await triageUserQuery(question, allDocs);
+    console.log("[AI Orchestrator] Plan:", plan);
 
-    // Store user question & AI answer in MongoDB
-    await ChatMessage.create({
-      meetingId: meeting._id,
-      userId: req.user?._id || undefined,
-      messageType: 'user',
-      content: question,
-      createdAt: new Date(),
+    // Step 3: Gather context based on plan
+    let transcriptContext = "";
+    if (plan.needsTranscripts) {
+      const transcripts = await Transcript.find({ meetingId: meeting._id }).sort({ timestamp: 1 }).limit(500).lean();
+      transcriptContext = buildContextFromTranscripts(transcripts);
+    }
+
+    const documentData = [];
+    if (plan.relevantDocIds.length > 0) {
+      const docs = await Document.find({ _id: { $in: plan.relevantDocIds } }).lean();
+      for (const d of docs) {
+        let bytes = null;
+        if (plan.isMultimodalRequired) {
+          bytes = await fetchFileBytes(d.fileUrl);
+        }
+        documentData.push({
+          id: d._id,
+          name: d.filename,
+          type: d.fileType,
+          text: d.extractedText,
+          url: d.fileUrl,
+          bytes: bytes
+        });
+      }
+    }
+
+    // Step 4: Generate Answer
+    const answer = await solveQuery({ 
+      question, 
+      transcriptContext, 
+      documentData, 
+      isMultimodal: plan.isMultimodalRequired 
     });
 
-    const assistant = await ChatMessage.create({
-      meetingId: meeting._id,
-      userId: req.user?._id || undefined,
-      messageType: 'assistant',
+    // Save to history
+    await ChatMessage.create({ meetingId: meeting._id, messageType: 'user', content: question });
+    const assistantMsg = await ChatMessage.create({ 
+      meetingId: meeting._id, 
+      messageType: 'assistant', 
       content: answer,
-      metadata: { sources: [] },
-      createdAt: new Date(),
+      metadata: { plan, modelUsed: plan.isMultimodalRequired ? "nova-lite" : "nova-micro" }
     });
 
-    res.json({
-      success: true,
-      data: { answer, usedModel, messageId: assistant._id },
-    });
+    res.json({ success: true, data: { answer, messageId: assistantMsg._id } });
   } catch (e) {
     next(e);
   }
 };
 
+/**
+ * Summary remains optimized but can use documents if triage suggests they are relevant
+ */
 const generateMeetingSummary = async (req, res, next) => {
   try {
     const meeting = await resolveMeetingByKey(req.params.meetingKey);
     if (!meeting) return res.status(404).json({ success: false, message: 'Meeting not found' });
 
-    // Fetch transcripts
-    const transcripts = await Transcript.find({ meetingId: meeting._id })
-      .sort({ timestamp: 1 })
-      .lean();
+    const transcripts = await Transcript.find({ meetingId: meeting._id }).sort({ timestamp: 1 }).lean();
+    const documents = await Document.find({ meetingId: meeting._id, isActive: true }).lean();
 
-    if (transcripts.length === 0) {
-      return res.json({ success: true, data: { summary: "No transcripts available for this meeting." } });
-    }
+    const transcriptContext = buildContextFromTranscripts(transcripts);
+    const documentSummary = documents.map(d => `Document "${d.filename}" was shared. Highlights: ${d.extractedText?.slice(0, 500)}...`).join('\n');
 
-    const context = buildContextFromTranscripts(transcripts);
-    
-    // Call Amazon Nova for summary
     const modelId = "amazon.nova-micro-v1:0"; 
-    const systemPrompt = "You are a professional secretary. Summarize the following meeting transcript in a concise and professional manner. Highlight key decisions and action items.";
-    
     const payload = {
-      system: [{ text: systemPrompt }],
-      messages: [
-        {
-          role: "user",
-          content: [
-            { text: `Transcript context:\n${context}` }
-          ]
-        }
-      ],
-      inferenceConfig: {
-        max_new_tokens: 1500,
-        temperature: 0.3,
-      }
+      system: [{ text: "You are a professional secretary. Summarize the meeting transcript and shared documents into a concise report." }],
+      messages: [{ role: "user", content: [{ text: `Transcripts:\n${transcriptContext}\n\nDocuments Shared:\n${documentSummary}` }] }],
+      inferenceConfig: { max_new_tokens: 1500, temperature: 0.3 }
     };
 
     const command = new InvokeModelCommand({
+      modelId,
       contentType: "application/json",
       accept: "application/json",
-      modelId: modelId,
       body: JSON.stringify(payload)
     });
 
     const response = await bedrockClient.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const summary = responseBody.output?.message?.content?.[0]?.text || "No summary generated.";
+    const body = JSON.parse(new TextDecoder().decode(response.body));
+    const summary = body.output?.message?.content?.[0]?.text || "No summary generated.";
 
-    res.json({
-      success: true,
-      data: { summary, usedModel: modelId },
-    });
+    res.json({ success: true, data: { summary } });
   } catch (e) {
     next(e);
   }
 };
 
 module.exports = { meetingAiChat, generateMeetingSummary };
-
