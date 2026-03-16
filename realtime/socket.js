@@ -1,6 +1,8 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { getMeetingState, removeParticipant } = require('./meetingState');
+const Transcript = require('../models/Transcript');
+const { resolveMeetingByKey } = require('../utils/resolveMeeting');
 
 function parseBearer(tokenOrHeader) {
   if (!tokenOrHeader) return null;
@@ -44,9 +46,10 @@ function createSocketServer(httpServer, { corsOrigins }) {
 
     socket.on('meeting:join', (payload, ack) => {
       try {
-        const meetingKey = String(payload?.meetingKey || '').trim();
+        const meetingKey = String(payload?.meetingKey || '').trim().toUpperCase();
         if (!meetingKey) throw new Error('meetingKey required');
 
+        console.log(`[Socket] Socket ${socket.id} joining room: ${meetingKey}`);
         const displayName = String(payload?.displayName || 'Guest').slice(0, 80);
         const role = payload?.role === 'host' ? 'host' : 'participant';
 
@@ -70,6 +73,8 @@ function createSocketServer(httpServer, { corsOrigins }) {
           followHost: p.followHost,
           browse: p.browse,
         }));
+
+        console.log(`[Socket] Room ${meetingKey} roster:`, roster.map(p => p.displayName));
 
         socket.to(meetingKey).emit('meeting:participant_joined', {
           socketId: socket.id,
@@ -119,17 +124,34 @@ function createSocketServer(httpServer, { corsOrigins }) {
       const p = state.participants.get(socket.id);
       if (!p || p.role !== 'host') return;
 
-      state.present = {
-        docId: payload?.docId ?? state.present.docId ?? null,
-        page: Number.isFinite(payload?.page) ? payload.page : state.present.page ?? 1,
-        url: payload?.url ?? state.present.url ?? null,
-      };
+      // If payload is explicitly null, stop the presentation for everyone
+      if (payload === null || payload.url === null) {
+        state.present = null;
+      } else {
+        state.present = {
+          docId: 'docId' in payload ? payload.docId : (state.present?.docId ?? null),
+          page: Number.isFinite(payload?.page) ? payload.page : (state.present?.page ?? 1),
+          url: 'url' in payload ? payload.url : (state.present?.url ?? null),
+          fileType: 'fileType' in payload ? payload.fileType : (state.present?.fileType ?? 'pdf'),
+        };
+      }
 
       // Everyone gets the host's "present" state; participants may choose to follow or not client-side.
       io.to(joinedMeetingKey).emit('present:updated', { present: state.present });
     });
 
-    // lightweight meeting chat (persisted elsewhere via REST later)
+    // host ending the meeting for everyone
+    socket.on('meeting:end', () => {
+      if (!joinedMeetingKey) return;
+      const state = getMeetingState(joinedMeetingKey);
+      const p = state.participants.get(socket.id);
+      if (!p || p.role !== 'host') return;
+
+      io.to(joinedMeetingKey).emit('meeting:ended', {
+        message: 'The host has ended the meeting.'
+      });
+    });
+
     socket.on('chat:send', (payload, ack) => {
       if (!joinedMeetingKey) return ack?.({ ok: false, error: 'not in meeting' });
       const state = getMeetingState(joinedMeetingKey);
@@ -147,19 +169,49 @@ function createSocketServer(httpServer, { corsOrigins }) {
       ack?.({ ok: true, message: msg });
     });
 
-    socket.on('transcript:chunk', (payload) => {
-      if (!joinedMeetingKey) return;
+    socket.on('transcript:chunk', async (payload) => {
+      if (!joinedMeetingKey) {
+        console.warn(`[Socket] Received transcript:chunk but joinedMeetingKey is missing for socket ${socket.id}`);
+        return;
+      }
       const state = getMeetingState(joinedMeetingKey);
       const p = state.participants.get(socket.id);
-      if (!p) return;
+      
+      const displayName = p?.displayName || payload?.displayName || "Unknown Speaker";
+      const userId = p?.userId || socket.id;
 
-      io.to(joinedMeetingKey).emit('transcript:chunk', {
+      const chunk = {
         meetingKey: joinedMeetingKey,
-        speaker: { socketId: socket.id, userId: p.userId, displayName: p.displayName },
+        speaker: { socketId: socket.id, userId, displayName },
         content: String(payload?.content || '').slice(0, 8000),
         isFinal: !!payload?.isFinal,
         ts: Date.now(),
-      });
+      };
+
+      console.log(`[Socket] Transcript chunk from ${displayName} (${socket.id}): "${chunk.content}" (Final: ${chunk.isFinal})`);
+      console.log(`[Socket] Room ${joinedMeetingKey} has ${state.participants.size} participants. Broadcasting...`);
+
+      // Broadcast to all participants for real-time captions
+      io.to(joinedMeetingKey).emit('transcript:chunk', chunk);
+
+      // Persist to DB if it's a final chunk
+      if (chunk.isFinal && chunk.content.trim()) {
+        try {
+          const meeting = await resolveMeetingByKey(joinedMeetingKey);
+          if (meeting) {
+            await Transcript.create({
+              meetingId: meeting._id,
+              speakerId: userId,
+              speakerName: displayName,
+              content: chunk.content,
+              isFinal: true,
+              timestamp: new Date(chunk.ts),
+            });
+          }
+        } catch (err) {
+          console.error("Failed to persist transcript chunk:", err);
+        }
+      }
     });
 
     socket.on('disconnect', () => {

@@ -13,7 +13,7 @@ const documentSchema = new mongoose.Schema({
   },
   fileType: { 
     type: String, 
-    enum: ['pdf'], 
+    enum: ['pdf', 'image', 'pptx'], 
     default: 'pdf' 
   },
   
@@ -41,7 +41,8 @@ const documentSchema = new mongoose.Schema({
   uploadedBy: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User', 
-    required: true 
+    required: false,  // guests (unauthenticated users) can upload 
+    default: null
   },
   uploadedAt: { 
     type: Date, 
@@ -52,6 +53,10 @@ const documentSchema = new mongoose.Schema({
   isActive: { 
     type: Boolean, 
     default: true 
+  },
+  extractedText: {
+    type: String,
+    default: ""
   },
   processingStatus: {
     type: String,

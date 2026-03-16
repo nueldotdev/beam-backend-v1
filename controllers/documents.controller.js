@@ -18,7 +18,7 @@ async function resolveMeetingObjectId(meetingIdOrCode) {
 // @access  Private
 const createDocument = async (req, res, next) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user?._id || null; // null for guest users
     const {
       meetingId,
       meetingCode,
@@ -28,6 +28,7 @@ const createDocument = async (req, res, next) => {
       size,
       pageCount,
       slides,
+      extractedText,
     } = req.body;
 
     const resolvedMeetingId = await resolveMeetingObjectId(meetingId || meetingCode);
@@ -43,6 +44,7 @@ const createDocument = async (req, res, next) => {
       size,
       pageCount,
       slides,
+      extractedText,
       uploadedBy: userId,
       processingStatus: 'completed', // assume already uploaded/processed
     });
