@@ -5,7 +5,13 @@ const ChatMessage = require('../models/ChatMessage');
 const Document = require('../models/Document');
 const { resolveMeetingByKey } = require('../utils/resolveMeeting');
 
-const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-1" });
+const bedrockClient = new BedrockRuntimeClient({ 
+  region: process.env.AWS_REGION || "eu-north-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  }
+});
 
 /**
  * Helper to fetch file bytes from Cloudinary for multimodal processing
@@ -49,6 +55,7 @@ Return ONLY a JSON object:
 
   try {
     const payload = {
+      schemaVersion: "messages-v1",
       system: [{ text: systemPrompt }],
       messages: [{ role: "user", content: [{ text: question }] }],
       inferenceConfig: { max_new_tokens: 500, temperature: 0 }
@@ -63,11 +70,14 @@ Return ONLY a JSON object:
 
     const response = await bedrockClient.send(command);
     const body = JSON.parse(new TextDecoder().decode(response.body));
-    const resultText = body.output?.message?.content?.[0]?.text;
+    const resultText = body.output?.message?.content?.[0]?.text || "";
     
-    // Cleanup potential markdown wrappers
-    const cleanJson = resultText.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleanJson);
+    // Robustly extract JSON object from response
+    const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON object found in AI response");
+    }
+    return JSON.parse(jsonMatch[0]);
   } catch (err) {
     console.error("Triage Error:", err);
     return { needsTranscripts: true, relevantDocIds: [], isMultimodalRequired: false, specificPages: [] };
@@ -94,15 +104,24 @@ async function solveQuery({ question, transcriptContext, documentData, isMultimo
     if (isMultimodal && doc.bytes && (doc.type === 'image' || doc.type === 'pdf')) {
       // Nova Lite supports direct PDF/Image input
       const format = doc.type === 'pdf' ? 'pdf' : (doc.url.endsWith('.png') ? 'png' : 'jpeg');
+      const mediaType = doc.type === 'pdf' ? 'document' : 'image';
+      
+      const mediaItem = {
+        format,
+        source: {
+          bytes: Buffer.from(doc.bytes).toString('base64')
+        }
+      };
+
+      if (mediaType === 'document') {
+        // Nova requires document name to be alphanumeric and 1-64 chars
+        mediaItem.name = (doc.name || 'SourceDocument').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64) || 'Document';
+      }
+
       content.push({
         text: `Source Document: ${doc.name}`
       });
-      content.push({
-        [doc.type === 'pdf' ? 'document' : 'image']: {
-          format,
-          source: { bytes: doc.bytes }
-        }
-      });
+      content.push({ [mediaType]: mediaItem });
     } else {
       content.push({ text: `DOCUMENT CONTENT (${doc.name}):\n${doc.text}` });
     }
@@ -111,6 +130,7 @@ async function solveQuery({ question, transcriptContext, documentData, isMultimo
   content.push({ text: `USER QUESTION: ${question}` });
 
   const payload = {
+    schemaVersion: "messages-v1",
     system: [{ text: systemPrompt }],
     messages: [{ role: "user", content }],
     inferenceConfig: { max_new_tokens: 2000, temperature: 0.1 }
@@ -213,6 +233,7 @@ const generateMeetingSummary = async (req, res, next) => {
 
     const modelId = "amazon.nova-micro-v1:0"; 
     const payload = {
+      schemaVersion: "messages-v1",
       system: [{ text: "You are a professional secretary. Summarize the meeting transcript and shared documents into a concise report." }],
       messages: [{ role: "user", content: [{ text: `Transcripts:\n${transcriptContext}\n\nDocuments Shared:\n${documentSummary}` }] }],
       inferenceConfig: { max_new_tokens: 1500, temperature: 0.3 }
